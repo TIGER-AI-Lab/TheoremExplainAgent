@@ -39,6 +39,7 @@ Scene Technical Implementation:
 18. **Animation Timings and Narration Sync:** Implement animations with precise `run_time` values and synchronize them with the narration script according to the Animation and Narration Plan. Use `Wait()` commands with specified durations for transition buffers.
 19. **Don't be lazy on code generation:** Generate full, complete code including all helper functions. Ensure that the output is comprehensive and the code is fully functional, incorporating all necessary helper methods and complete scene implementation details.
 20. **LaTeX Package Handling:** If the technical implementation plan specifies the need for additional LaTeX packages:
+    *   **LaTeX Special Character Handling:** Ensure that all special characters in LaTeX text (such as underscores _, percent signs %, hash symbols #, dollar signs $, etc.) are properly escaped. For example, add_intro should be written as add\_intro. For mathematical expressions (like O(n^2)), make sure they are enclosed in math mode using $O(n^2)$ or \(O(n^2)\).
     *   Create a `TexTemplate` object.
     *   Use `myTemplate = TexTemplate()`
     *   Use `myTemplate.add_to_preamble(r"\\usepackage{{package_name}}")` to add the required package.
