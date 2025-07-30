@@ -28,6 +28,7 @@ The following manim plugins are relevant to the scene:
 
 **Common Mistakes:**
 *   The Triangle class in Manim creates equilateral triangles by default. To create a right-angled triangle, use the Polygon class instead.
+*   **LaTeX Text Handling Error:** When generating text that includes LaTeX, ensure that all special characters are properly escaped. For mathematical expressions (such as O(n^2)), make sure they are enclosed in math mode using $O(n^2)$. This is because LaTeX interprets unescaped underscores and superscript symbols as the beginning of math mode, which can lead to compilation errors.
 
 **Manim Plugins:**
 *   You may use established, well-documented Manim plugins if they offer significant advantages in terms of code clarity, efficiency, or functionality not readily available in core Manim.
