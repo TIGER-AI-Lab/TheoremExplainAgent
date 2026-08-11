@@ -20,6 +20,20 @@ load_dotenv()
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "src", "utils", "allowed_models.json")) as f:
     ALLOWED_MODELS = json.load(f)["allowed_models"]
 
+MINIMAX_VIDEO_MODEL = "minimax/MiniMax-M3"
+VIDEO_MODELS = [
+    "gemini/gemini-1.5-pro-002",
+    "gemini/gemini-2.0-flash-exp",
+    "gemini/gemini-2.0-pro-exp-02-05",
+    MINIMAX_VIDEO_MODEL,
+]
+
+
+def _create_video_model(model_name: str):
+    if model_name == MINIMAX_VIDEO_MODEL:
+        return LiteLLMWrapper(model_name=model_name, temperature=0.0)
+    return GeminiWrapper(model_name=model_name, temperature=0.0)
+
 
 def combine_results(output_folder: str, combined_file: str, results: Dict[str, Dict]) -> None:
     """
@@ -359,9 +373,7 @@ def main():
                        default='azure/gpt-4o',
                        help='Select the AI model to use for text evaluation')
     parser.add_argument('--model_video', type=str,
-                       choices=['gemini/gemini-1.5-pro-002',
-                                'gemini/gemini-2.0-flash-exp',
-                                'gemini/gemini-2.0-pro-exp-02-05'],
+                       choices=VIDEO_MODELS,
                        default='gemini/gemini-1.5-pro-002',
                        help='Select the AI model to use for video evaluation')
     parser.add_argument('--model_image', type=str,
@@ -385,10 +397,7 @@ def main():
         model_name=args.model_text,
         temperature=0.0,
     )
-    video_model = GeminiWrapper(
-        model_name=args.model_video,
-        temperature=0.0,
-    )
+    video_model = _create_video_model(args.model_video)
     image_model = LiteLLMWrapper(
         model_name=args.model_image,
         temperature=0.0,

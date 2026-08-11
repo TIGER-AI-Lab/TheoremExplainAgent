@@ -12,6 +12,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+MINIMAX_MULTIMODAL_MODELS = {"minimax/minimax-m3"}
+
+
 class LiteLLMWrapper:
     """Wrapper for LiteLLM to support multiple models and logging"""
     
@@ -148,8 +151,39 @@ class LiteLLMWrapper:
                         })
                     else:
                         raise ValueError("For GPT, only text and image inferencing are supported")
+                elif self.model_name.lower().startswith("minimax/"):
+                    if self.model_name.lower() not in MINIMAX_MULTIMODAL_MODELS:
+                        raise ValueError(f"{self.model_name} only supports text input")
+
+                    # MiniMax-M3 uses OpenAI-compatible image and video blocks.
+                    if msg["type"] == "image":
+                        formatted_messages.append({
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": data_url
+                                    }
+                                }
+                            ]
+                        })
+                    elif msg["type"] == "video":
+                        formatted_messages.append({
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "video_url",
+                                    "video_url": {
+                                        "url": data_url
+                                    }
+                                }
+                            ]
+                        })
+                    else:
+                        raise ValueError("For MiniMax, only text, image and video inferencing are supported")
                 else:
-                    raise ValueError("Only support Gemini and Gpt for Multimodal capability now")
+                    raise ValueError("Only support Gemini, Gpt and MiniMax for Multimodal capability now")
 
         try:
             # if it's openai o series model, set temperature to None and reasoning_effort to "medium"
