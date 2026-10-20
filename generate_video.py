@@ -20,6 +20,7 @@ from src.core.code_generator import CodeGenerator
 from src.core.video_renderer import VideoRenderer
 from src.utils.utils import _print_response, _extract_code, extract_xml # Import utility functions
 from src.config.config import Config # Import Config class
+from src.rag.parallel_search import resolve_search_provider
 
 # Video parsing
 from src.core.parse_video import (
@@ -88,7 +89,10 @@ class VideoGenerator:
                  use_visual_fix_code=False,
                  use_langfuse=True,
                  trace_id=None,
-                 max_scene_concurrency: int = 5):
+                 max_scene_concurrency: int = 5,
+                 search_provider: str = None):
+        search_provider = resolve_search_provider(use_rag, search_provider)
+        use_rag = search_provider == "local"
         self.output_dir = output_dir
         self.verbose = verbose
         self.use_visual_fix_code = use_visual_fix_code
@@ -124,7 +128,8 @@ class VideoGenerator:
             embedding_model=embedding_model,
             use_visual_fix_code=use_visual_fix_code,
             use_langfuse=use_langfuse,
-            session_id=self.session_id
+            session_id=self.session_id,
+            search_provider=search_provider
         )
         self.video_renderer = VideoRenderer(
             output_dir=output_dir,
@@ -309,6 +314,9 @@ class VideoGenerator:
         file_prefix = topic.lower()
         file_prefix = re.sub(r'[^a-z0-9_]+', '_', file_prefix)
 
+        # One research run per video job; transport/client lifetime is independent.
+        search_session_id = str(uuid.uuid4())
+
         # Create tasks for each scene
         tasks = []
         for i, implementation_plan in enumerate(implementation_plans):
@@ -326,13 +334,13 @@ class VideoGenerator:
                 with open(scene_trace_id_path, 'w') as f:
                     f.write(scene_trace_id)
 
-            task = self.process_scene(i, scene_outline, implementation_plan, topic, description, max_retries, file_prefix, session_id, scene_trace_id)
+            task = self.process_scene(i, scene_outline, implementation_plan, topic, description, max_retries, file_prefix, session_id, scene_trace_id, search_session_id)
             tasks.append(task)
 
         # Execute all tasks concurrently
         await asyncio.gather(*tasks)
 
-    async def process_scene(self, i: int, scene_outline: str, scene_implementation: str, topic: str, description: str, max_retries: int, file_prefix: str, session_id: str, scene_trace_id: str): # added scene_trace_id
+    async def process_scene(self, i: int, scene_outline: str, scene_implementation: str, topic: str, description: str, max_retries: int, file_prefix: str, session_id: str, scene_trace_id: str, search_session_id: str = None):
         """
         Process a single scene using CodeGenerator and VideoRenderer.
 
@@ -347,6 +355,7 @@ class VideoGenerator:
             session_id (str): Session identifier for tracking
             scene_trace_id (str): Trace identifier for this scene
         """
+        search_session_id = search_session_id or str(uuid.uuid4())
         curr_scene = i + 1
         curr_version = 0
         # scene_trace_id = str(uuid.uuid4()) # Remove uuid generation
@@ -368,6 +377,7 @@ class VideoGenerator:
                 additional_context=[_prompt_manim_cheatsheet, _code_font_size, _code_limit, _code_disable],
                 scene_trace_id=scene_trace_id, # Use passed scene_trace_id
                 session_id=session_id,
+                search_session_id=search_session_id,
                 rag_queries_cache=rag_queries_cache  # Pass the cache
             )
 
@@ -413,6 +423,7 @@ class VideoGenerator:
                     topic=topic,
                     scene_number=curr_scene,
                     session_id=session_id,
+                    search_session_id=search_session_id,
                     rag_queries_cache=rag_queries_cache
                 )
 
@@ -680,7 +691,9 @@ if __name__ == "__main__":
     parser.add_argument('--sample_size', '--sample', type=int, default=None, help='Number of theorems to sample')
     parser.add_argument('--verbose', action='store_true', help='Print verbose output')
     parser.add_argument('--max_retries', type=int, default=5, help='Maximum number of retries for code generation')
-    parser.add_argument('--use_rag', '--rag', action='store_true', help='Use Retrieval Augmented Generation')
+    parser.add_argument('--use_rag', '--rag', action='store_true', help='Use local Retrieval Augmented Generation')
+    parser.add_argument('--search_provider', choices=['parallel', 'local', 'none'], default=None,
+                        help='Documentation retrieval: parallel by default, local with --use_rag, or none to disable')
     parser.add_argument('--use_visual_fix_code','--visual_fix_code', action='store_true', help='Use VLM to fix code with rendered visuals')
     parser.add_argument('--chroma_db_path', type=str, default=Config.CHROMA_DB_PATH, help="Path to Chroma DB") # Use Config
     parser.add_argument('--manim_docs_path', type=str, default=Config.MANIM_DOCS_PATH, help="Path to manim docs") # Use Config
@@ -775,6 +788,7 @@ if __name__ == "__main__":
             output_dir=args.output_dir,
             verbose=args.verbose,
             use_rag=args.use_rag,
+            search_provider=args.search_provider,
             use_context_learning=args.use_context_learning,
             context_learning_path=args.context_learning_path,
             chroma_db_path=args.chroma_db_path,
@@ -816,6 +830,7 @@ if __name__ == "__main__":
                 output_dir=args.output_dir,
                 verbose=args.verbose,
                 use_rag=args.use_rag,
+                search_provider=args.search_provider,
                 use_context_learning=args.use_context_learning,
                 context_learning_path=args.context_learning_path,
                 chroma_db_path=args.chroma_db_path,
@@ -922,6 +937,7 @@ if __name__ == "__main__":
             output_dir=args.output_dir,
             verbose=args.verbose,
             use_rag=args.use_rag,
+            search_provider=args.search_provider,
             use_context_learning=args.use_context_learning,
             context_learning_path=args.context_learning_path,
             chroma_db_path=args.chroma_db_path,

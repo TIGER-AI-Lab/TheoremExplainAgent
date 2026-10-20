@@ -12,7 +12,6 @@ from task_generator import (
     get_prompt_rag_query_generation_narration,
     get_prompt_rag_query_generation_code
 )
-from src.rag.vector_store import RAGVectorStore
 
 class RAGIntegration:
     """Class for integrating RAG (Retrieval Augmented Generation) functionality.
@@ -37,6 +36,7 @@ class RAGIntegration:
         self.session_id = session_id
         self.relevant_plugins = None
 
+        from src.rag.vector_store import RAGVectorStore
         self.vector_store = RAGVectorStore(
             chroma_db_path=chroma_db_path,
             manim_docs_path=manim_docs_path,

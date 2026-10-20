@@ -4,6 +4,7 @@ import json
 from typing import Union, List, Dict
 from PIL import Image
 import glob
+import uuid
 
 from src.utils.utils import extract_json
 from mllm_tools.utils import _prepare_text_inputs, _extract_code, _prepare_text_image_inputs
@@ -24,12 +25,12 @@ from task_generator.prompts_raw import (
     _code_limit,
     _prompt_manim_cheatsheet
 )
-from src.rag.vector_store import RAGVectorStore # Import RAGVectorStore
+from src.rag.parallel_search import ParallelSearch, resolve_search_provider
 
 class CodeGenerator:
     """A class for generating and managing Manim code."""
 
-    def __init__(self, scene_model, helper_model, output_dir="output", print_response=False, use_rag=False, use_context_learning=False, context_learning_path="data/context_learning", chroma_db_path="rag/chroma_db", manim_docs_path="rag/manim_docs", embedding_model="azure/text-embedding-3-large", use_visual_fix_code=False, use_langfuse=True, session_id=None):
+    def __init__(self, scene_model, helper_model, output_dir="output", print_response=False, use_rag=False, use_context_learning=False, context_learning_path="data/context_learning", chroma_db_path="rag/chroma_db", manim_docs_path="rag/manim_docs", embedding_model="azure/text-embedding-3-large", use_visual_fix_code=False, use_langfuse=True, session_id=None, search_provider=None):
         """Initialize the CodeGenerator.
 
         Args:
@@ -46,12 +47,14 @@ class CodeGenerator:
             use_visual_fix_code (bool, optional): Whether to use visual code fixing. Defaults to False.
             use_langfuse (bool, optional): Whether to use Langfuse logging. Defaults to True.
             session_id (str, optional): Session identifier. Defaults to None.
+            search_provider (str, optional): parallel (default), local with use_rag, or none.
         """
         self.scene_model = scene_model
         self.helper_model = helper_model
         self.output_dir = output_dir
         self.print_response = print_response
-        self.use_rag = use_rag
+        self.search_provider = resolve_search_provider(use_rag, search_provider)
+        self.use_rag = self.search_provider == "local"
         self.use_context_learning = use_context_learning
         self.context_learning_path = context_learning_path
         self.context_examples = self._load_context_examples() if use_context_learning else None
@@ -61,7 +64,9 @@ class CodeGenerator:
         self.banned_reasonings = get_banned_reasonings()
         self.session_id = session_id # Use session_id passed from VideoGenerator
 
-        if use_rag:
+        self.parallel_search = ParallelSearch() if self.search_provider == "parallel" else None
+        if self.use_rag:
+            from src.rag.vector_store import RAGVectorStore
             self.vector_store = RAGVectorStore(
                 chroma_db_path=chroma_db_path,
                 manim_docs_path=manim_docs_path,
@@ -258,7 +263,8 @@ class CodeGenerator:
                             additional_context: Union[str, List[str]] = None,
                             scene_trace_id: str = None,
                             session_id: str = None,
-                            rag_queries_cache: Dict = None) -> str:
+                            rag_queries_cache: Dict = None,
+                            search_session_id: str = None) -> str:
         """Generate Manim code from video plan.
 
         Args:
@@ -271,6 +277,8 @@ class CodeGenerator:
             scene_trace_id (str, optional): Trace identifier. Defaults to None.
             session_id (str, optional): Session identifier. Defaults to None.
             rag_queries_cache (Dict, optional): Cache for RAG queries. Defaults to None.
+            search_session_id (str, optional): Opaque ID shared by searches for one video job.
+                Omit only for a standalone research call.
 
         Returns:
             Tuple[str, str]: Generated code and response text
@@ -286,7 +294,7 @@ class CodeGenerator:
             if self.context_examples:
                 additional_context.append(self.context_examples)
 
-        if self.use_rag:
+        if self.search_provider != "none":
             # Generate RAG queries (will use cache if available)
             rag_queries = self._generate_rag_queries_code(
                 implementation=scene_implementation,
@@ -296,16 +304,21 @@ class CodeGenerator:
                 session_id=session_id
             )
 
-            retrieved_docs = self.vector_store.find_relevant_docs(
-                queries=rag_queries,
-                k=2, # number of documents to retrieve
-                trace_id=scene_trace_id,
-                topic=topic,
-                scene_number=scene_number
-            )
+            if self.parallel_search:
+                retrieved_docs = self.parallel_search.get_context(
+                    rag_queries, search_session_id or str(uuid.uuid4()))
+            else:
+                retrieved_docs = self.vector_store.find_relevant_docs(
+                    queries=rag_queries, k=2, trace_id=scene_trace_id,
+                    topic=topic, scene_number=scene_number)
+
             # Format the retrieved documents into a string
             if additional_context is None:
                 additional_context = []
+            elif isinstance(additional_context, str):
+                additional_context = [additional_context]
+            else:
+                additional_context = list(additional_context)
             additional_context.append(retrieved_docs)
 
         # Format code generation prompt with plan and retrieved context
@@ -334,7 +347,7 @@ class CodeGenerator:
         )
         return code, response_text
 
-    def fix_code_errors(self, implementation_plan: str, code: str, error: str, scene_trace_id: str, topic: str, scene_number: int, session_id: str, rag_queries_cache: Dict = None) -> str:
+    def fix_code_errors(self, implementation_plan: str, code: str, error: str, scene_trace_id: str, topic: str, scene_number: int, session_id: str, rag_queries_cache: Dict = None, search_session_id: str = None) -> str:
         """Fix errors in generated Manim code.
 
         Args:
@@ -346,6 +359,8 @@ class CodeGenerator:
             scene_number (int): Scene number
             session_id (str): Session identifier
             rag_queries_cache (Dict, optional): Cache for RAG queries. Defaults to None.
+            search_session_id (str, optional): Opaque ID shared by searches for one video job.
+                Omit only for a standalone research call.
 
         Returns:
             Tuple[str, str]: Fixed code and response text
@@ -353,7 +368,7 @@ class CodeGenerator:
         # Format error fix prompt
         prompt = get_prompt_fix_error(implementation_plan=implementation_plan, manim_code=code, error=error)
 
-        if self.use_rag:
+        if self.search_provider != "none":
             # Generate RAG queries for error fixing
             rag_queries = self._generate_rag_queries_error_fix(
                 error=error,
@@ -363,13 +378,14 @@ class CodeGenerator:
                 scene_number=scene_number,
                 session_id=session_id
             )
-            retrieved_docs = self.vector_store.find_relevant_docs(
-                queries=rag_queries,
-                k=2, # number of documents to retrieve for error fixing
-                trace_id=scene_trace_id,
-                topic=topic,
-                scene_number=scene_number
-            )
+            if self.parallel_search:
+                retrieved_docs = self.parallel_search.get_context(
+                    rag_queries, search_session_id or str(uuid.uuid4()))
+            else:
+                retrieved_docs = self.vector_store.find_relevant_docs(
+                    queries=rag_queries, k=2, trace_id=scene_trace_id,
+                    topic=topic, scene_number=scene_number)
+
             # Format the retrieved documents into a string
             prompt = get_prompt_fix_error(implementation_plan=implementation_plan, manim_code=code, error=error, additional_context=retrieved_docs)
 
