@@ -103,7 +103,7 @@ Fill in the API keys according to the model you wanted to use.
 export PYTHONPATH=$(pwd):$PYTHONPATH
 ```
 
-6. (Optional) To setup RAG, See [https://github.com/TIGER-AI-Lab/TheoremExplainAgent?tab=readme-ov-file#generation-with-rag](https://github.com/TIGER-AI-Lab/TheoremExplainAgent?tab=readme-ov-file#generation-with-rag).
+6. Code generation retrieves online Manim documentation by default (see [Documentation search](#documentation-search)). For local RAG instead, see [Generation with RAG](#generation-with-rag).
 
 > **Look at the [FAQ section in this README doc](https://github.com/TIGER-AI-Lab/TheoremExplainAgent?tab=readme-ov-file#-faq) if you encountered any errors. If that didnt help, create a issue**<br>
 
@@ -143,6 +143,18 @@ python generate_video.py \
       --max_scene_concurrency 7 \
       --max_topic_concurrency 20 \
 ```
+
+### Documentation search
+
+Code generation and error repair use [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp) to search and fetch Manim Community documentation. Anonymous search runs in Fast mode, with no account, API key, downloaded corpus or embedding model required. The existing `requests` dependency handles the HTTP connection to `https://search.parallel.ai/mcp`.
+
+This is enabled for an unconfigured run. Generated documentation queries are sent to Parallel, and excerpts with source URLs are included in the coding model's prompt. Searches target the Manim Community core documentation with a request for 0.18.1 APIs; returned pages may describe newer versions, so check compatibility with the installed version. Local RAG remains available for the downloaded core and plugin corpus. Planning and rendering do not perform online lookups.
+
+Use `--search_provider none` to disable documentation retrieval, including its query-generation model calls. Use `--use_rag` (or `--search_provider local`) to retain local Chroma retrieval with your configured docs and embedding model. `--search_provider parallel` explicitly selects online retrieval. Conflicting `--use_rag` and provider choices are rejected before retrieval starts.
+
+The anonymous service has usage limits. Connection, timeout and service errors stop the lookup with a message; no other provider is substituted. Retry later or select `--search_provider none` to continue without retrieved context. Each lookup sends at most three generated queries and fetches at most two documentation pages.
+
+Python callers can pass `search_provider="none"`, `"local"` or `"parallel"` to `VideoGenerator` or `CodeGenerator`. Each topic's output directory stores an opaque UUID in `search_session_id.txt`, shared across scenes, code repairs, failed lookups and resumed runs. Use a fresh output directory to start a new research job. Direct `CodeGenerator` callers should pass the same `search_session_id` UUID to related `generate_manim_code` and `fix_code_errors` calls, and generate a new UUID for a new research job. Omitting it starts a standalone lookup.
 
 ### Generation with RAG
 Before using RAG, download the RAG documentation from this [Google Drive link](https://drive.google.com/file/d/1Tn6J_JKVefFZRgZbjns93KLBtI9ullRv/view?usp=sharing). After downloading, unzip the file. For example, if you unzip it to `data/rag/manim_docs`, then you should set `--manim_docs_path` to `data/rag/manim_docs`. The vector database will be created the first time you run with RAG.
@@ -196,6 +208,8 @@ options:
   --max_retries MAX_RETRIES
                         Maximum number of retries for code generation
   --use_rag, --rag      Use Retrieval Augmented Generation
+  --search_provider {parallel,local,none}
+                        Documentation retrieval (default: parallel, or local with --use_rag)
   --use_visual_fix_code, --visual_fix_code
                         Use VLM to fix code with rendered visuals
   --chroma_db_path CHROMA_DB_PATH
