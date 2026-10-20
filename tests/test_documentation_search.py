@@ -2,6 +2,7 @@
 import asyncio
 import importlib
 import json
+import os
 import sys
 import tempfile
 import types
@@ -251,7 +252,28 @@ class DocumentationSearchTests(unittest.TestCase):
         for search, fetch in zip(calls[::2], calls[1::2]):
             self.assertEqual(search["arguments"]["session_id"], fetch["arguments"]["session_id"])
         self.assertTrue(all("FETCHED_DOC" in call.args[0][0]["content"] for call in self.model.call_args_list))
+        first_job_id = ids[0]
         asyncio.run(video.render_video_fix_code("Job A", "description", "outline", ["Draw a circle"], session_id="shared-trace"))
+        self.assertEqual(self.fixture.calls()[-1]["arguments"]["session_id"], first_job_id)
+
+        # A failed lookup must preserve the persisted identity when retried,
+        # including after a new VideoGenerator is constructed for the same output.
+        self.fixture.failure = {"isError": True, "content": [{"type": "text", "text": "quota exceeded"}]}
+        with self.assertRaises(SearchError):
+            asyncio.run(video.render_video_fix_code("Job A", "description", "outline", ["Draw a circle"], session_id="shared-trace"))
+        self.assertEqual(self.fixture.calls()[-1]["arguments"]["session_id"], first_job_id)
+        self.fixture.failure = None
+        resumed = video_module.VideoGenerator(self.model, helper_model=helper, output_dir=self.temp.name, use_langfuse=False)
+        resumed.video_renderer = video.video_renderer
+        asyncio.run(resumed.render_video_fix_code("Job A", "description", "outline", ["Draw a circle"], session_id="shared-trace"))
+        self.assertEqual(self.fixture.calls()[-1]["arguments"]["session_id"], first_job_id)
+
+        # A new output directory explicitly starts a new research job.
+        new_job = video_module.VideoGenerator(self.model, helper_model=helper,
+                                             output_dir=os.path.join(self.temp.name, "new-job"), use_langfuse=False)
+        new_job.code_generator.parallel_search = video.code_generator.parallel_search
+        new_job.video_renderer = video.video_renderer
+        asyncio.run(new_job.render_video_fix_code("Job A", "description", "outline", ["Draw a circle"], session_id="shared-trace"))
         self.assertNotIn(self.fixture.calls()[-1]["arguments"]["session_id"], ids)
 
 

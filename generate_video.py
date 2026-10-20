@@ -196,6 +196,32 @@ class VideoGenerator:
                 return f.read().strip()
         return None
 
+    def _load_or_create_search_session_id(self, file_prefix: str) -> str:
+        """Resume one documentation research run for a topic's output directory.
+
+        Publish a fully written UUID atomically so concurrent/restarted workers
+        cannot replace a job's identity after a failed lookup.
+        """
+        topic_dir = os.path.join(self.output_dir, file_prefix)
+        os.makedirs(topic_dir, exist_ok=True)
+        session_path = os.path.join(topic_dir, "search_session_id.txt")
+        if not os.path.exists(session_path):
+            candidate = str(uuid.uuid4())
+            temporary_path = session_path + "." + candidate + ".tmp"
+            try:
+                with open(temporary_path, "x") as f:
+                    f.write(candidate)
+                try:
+                    os.link(temporary_path, session_path)
+                except FileExistsError:
+                    pass  # Another worker already published the job's identity.
+            finally:
+                if os.path.exists(temporary_path):
+                    os.unlink(temporary_path)
+        with open(session_path) as f:
+            # Reject corrupted state instead of silently changing quota identity.
+            return str(uuid.UUID(f.read().strip()))
+
     def generate_scene_outline(self,
                             topic: str,
                             description: str,
@@ -314,8 +340,9 @@ class VideoGenerator:
         file_prefix = topic.lower()
         file_prefix = re.sub(r'[^a-z0-9_]+', '_', file_prefix)
 
-        # One research run per video job; transport/client lifetime is independent.
-        search_session_id = str(uuid.uuid4())
+        # Resume the research run across failed lookups and worker restarts.
+        search_session_id = (self._load_or_create_search_session_id(file_prefix)
+                             if self.code_generator.search_provider == "parallel" else None)
 
         # Create tasks for each scene
         tasks = []
