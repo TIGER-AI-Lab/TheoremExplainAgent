@@ -20,6 +20,8 @@ load_dotenv()
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "src", "utils", "allowed_models.json")) as f:
     ALLOWED_MODELS = json.load(f)["allowed_models"]
 
+DEFAULT_TEXT_MODEL = "minimax/MiniMax-M3.1-Flash"
+
 
 def combine_results(output_folder: str, combined_file: str, results: Dict[str, Dict]) -> None:
     """
@@ -356,7 +358,7 @@ def main():
     parser = argparse.ArgumentParser(description='Automatic evaluation of theorem explanation videos with LLMs')
     parser.add_argument('--model_text', type=str, 
                        choices=ALLOWED_MODELS,
-                       default='azure/gpt-4o',
+                       default=DEFAULT_TEXT_MODEL,
                        help='Select the AI model to use for text evaluation')
     parser.add_argument('--model_video', type=str,
                        choices=['gemini/gemini-1.5-pro-002',

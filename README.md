@@ -113,6 +113,15 @@ export PYTHONPATH=$(pwd):$PYTHONPATH
 <!--You can customize the allowed models by editing the `src/utils/allowed_models.json` file. This file specifies which `model` and `helper_model` the system is permitted to use.--> 
 The model naming follows the LiteLLM convention. For details on how models should be named, please refer to the [LiteLLM documentation](https://docs.litellm.ai/docs/providers).
 
+For MiniMax text generation/evaluation, choose `minimax/MiniMax-M3.1-Flash`
+(the text-evaluation default) or `minimax/MiniMax-M3` and set `MINIMAX_API_KEY`.
+The pinned LiteLLM 1.60.x predates its MiniMax provider, so the wrapper sends
+these two text models through the OpenAI-compatible route at
+`https://api.minimax.io/v1`. Set `MINIMAX_API_BASE` to override that endpoint.
+The evaluator's zero temperature is omitted for these models, using the provider
+default; thinking and effort also use provider defaults. This text integration
+does not enable MiniMax image/video evaluation or visual code fixing.
+
 ### Generation (Single topic)
 ```shell
 python generate_video.py \

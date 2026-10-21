@@ -152,8 +152,27 @@ class LiteLLMWrapper:
                     raise ValueError("Only support Gemini and Gpt for Multimodal capability now")
 
         try:
+            # LiteLLM 1.60.x predates the MiniMax provider. Use its supported
+            # OpenAI-compatible route for the current text models only.
+            if self.model_name in {
+                "minimax/MiniMax-M3.1-Flash", "minimax/MiniMax-M3"
+            }:
+                api_key = os.environ.get("MINIMAX_API_KEY")
+                if not api_key:
+                    raise ValueError("MINIMAX_API_KEY is required for MiniMax text models")
+                response = completion(
+                    model="openai/" + self.model_name.split("/", 1)[1],
+                    api_base=os.environ.get("MINIMAX_API_BASE") or "https://api.minimax.io/v1",
+                    api_key=api_key,
+                    messages=formatted_messages,
+                    # MiniMax requires temperature > 0; omit the evaluator's 0.0
+                    # to use the provider default instead.
+                    temperature=self.temperature if self.temperature > 0 else None,
+                    metadata=metadata,
+                    max_retries=99,
+                )
             # if it's openai o series model, set temperature to None and reasoning_effort to "medium"
-            if (re.match(r"^o\d+.*$", self.model_name) or re.match(r"^openai/o.*$", self.model_name)):
+            elif (re.match(r"^o\d+.*$", self.model_name) or re.match(r"^openai/o.*$", self.model_name)):
                 self.temperature = None
                 self.reasoning_effort = "medium"
                 response = completion(
